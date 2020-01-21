@@ -1,0 +1,21 @@
+- hosts: localhost
+  gather_facts: no
+  vars:
+    token_path: /etc/ansible/kubernetes/join_token
+
+  tasks:
+    - name: Token publish
+      shell:  cat {{token_path}} | tail -2
+      register: token
+      
+    - set_fact:
+        token: "{{token.stdout}}"
+
+- hosts: k8s-worker
+  gather_facts: false
+  vars:
+    token: "{{ hostvars['localhost'].token }}"
+  user: root
+  tasks:
+    - name: Join worker cluster
+      shell: "{{token}}"

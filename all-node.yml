@@ -1,0 +1,103 @@
+---
+  - hosts: k8s-all
+    user: root
+    vars:
+      selinux_path: "/etc/selinux/config"
+      fstab_path: "/etc/fstab"
+      iptables_file: "/etc/sysctl.d/k8s.conf"
+      docker_repo: "https://download.docker.com/linux/centos/docker-ce.repo"
+      kubernetes_repo_file: "/etc/yum.repos.d/kubernetes.repo"
+      kubernetes_repo: |
+                      [kubernetes]
+                      name=Kubernetes
+                      baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-x86_64
+                      enabled=1
+                      gpgcheck=1
+                      repo_gpgcheck=1
+                      gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+    tasks:
+      - name: Swapoff disable etme
+        command: swapoff -a
+        ignore_errors: yes
+
+      - name: Swapoff silme
+        command: sed -i "/swap/d" {{fstab_path}}
+        ignore_errors: yes
+        
+      - name: Selinux disable etme
+        selinux:
+            state: disabled 
+            conf: "{{selinux_path}}"
+        ignore_errors: yes
+
+      - name: firewalld kapatma
+        shell: |
+              systemctl disable firewalld
+              systemctl stop firewalld
+        ignore_errors: yes
+
+      - name: Packages install open-vm-tools and net-tools
+        yum:
+          name: "{{ packages }}"
+        vars:
+          packages:
+          - open-vm-tools 
+          - net-tools
+        ignore_errors: yes
+
+      - name: Update
+        command: yum -y update
+        ignore_errors: yes
+
+      - name: reboot
+        reboot:
+
+      - name: Docker Repo add
+        command: sudo yum-config-manager --add-repo {{docker_repo}}
+
+      - name: Docker installation
+        yum:
+          name: "{{ packages }}"
+        vars:
+          packages:
+          - yum-utils
+          - device-mapper-persistent-data
+          - lvm2
+          - docker
+        ignore_errors: yes
+
+      - name: Docker start
+        service: name=docker enabled=yes state=started
+        ignore_errors: yes 
+
+      - name: Kubernetes repo
+        copy:
+            dest: "{{kubernetes_repo_file}}"
+            content: "{{kubernetes_repo}}"
+        ignore_errors: yes
+
+      - name: Kubernetes install
+        command: yum install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
+        ignore_errors: yes
+
+      - name: Enable kubelet
+        command: systemctl enable --now kubelet
+        ignore_errors: yes
+
+      - name: Iptables config
+        copy:
+            dest:  "{{iptables_file}}"
+            content: |
+              net.bridge.bridge-nf-call-ip6tables = 1
+              net.bridge.bridge-nf-call-iptables = 1
+        ignore_errors: yes
+
+      - name: Iptables enable
+        command: sysctl --system
+        ignore_errors: yes
+
+      - name: Modprobe enable
+        command: modprobe br_netfilter
+        ignore_errors: yes
+  - import_playbook: master.yml
+  - import_playbook: worker.yml

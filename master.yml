@@ -1,0 +1,45 @@
+---
+  - hosts: k8s-master
+    user: root
+    vars:
+      api_addr: "{{ansible_default_ipv4.address}}"
+      cidr_subnet: 10.244.0.0/16
+      cidr_ip: 10.244.0.0
+      cni: https://docs.projectcalico.org/v3.8/manifests/calico.yaml
+      token_path: /etc/ansible/kubernetes/join_token
+    tasks:     
+      - name: Cluster CNI Config
+        shell: kubeadm init --pod-network-cidr={{cidr_subnet}} --apiserver-advertise-address={{api_addr}}
+        register: output
+        ignore_errors: yes
+
+      - name: Init output save file
+        local_action: copy content={{output.stdout}} dest={{token_path}}
+        ignore_errors: yes
+
+      - name: Init requirement copy file
+        shell: |
+          mkdir -p $HOME/.kube
+          sudo cp -f /etc/kubernetes/admin.conf $HOME/.kube/config
+          sudo chown $(id -u):$(id -g) $HOME/.kube/config
+        ignore_errors: yes
+
+      - name: CNI install
+        command: curl -o calico.yaml {{cni}}
+        ignore_errors: yes
+      
+      - name: Calico configure
+        command: sed -i -r "s/192.168.0.0/{{cidr_ip}}/g" calico.yaml
+        ignore_errors: yes
+
+      - name: CNI calico apply
+        command: kubectl apply -f calico.yaml
+        ignore_errors: yes
+
+      - name: K8S Container up wait (2 minute)
+        pause:
+            minutes: 1
+
+      - name: Rancher install
+        shell: sudo docker run --name Rancher_K8s -d --restart=unless-stopped -p 80:80 -p 443:443 rancher/rancher
+        ignore_errors: yes
